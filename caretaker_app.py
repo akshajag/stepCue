@@ -290,6 +290,11 @@ def read_decisions(limit=5):
 
 # ----------------------------------------------------------------- sign-in --
 user = auth_ui.require_login()          # stops here until signed in (Google or password, then 2FA code)
+if user.get("admin"):                     # demo admin: switch between all three dashboards
+    with st.sidebar:
+        view = st.segmented_control("Dashboard", ["care", "family", "patient"], default="care",
+                                    format_func=lambda r: auth.ROLES[r], key="admin_view") or "care"
+    user = dict(user, role=view)
 CARE = user["role"] == "care"
 
 

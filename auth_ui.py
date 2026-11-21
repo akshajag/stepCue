@@ -108,12 +108,20 @@ def _step_one():
             pw = st.text_input("Password", type="password")
             if st.form_submit_button("Continue", width="stretch",
                                      type="secondary" if google_configured() else "primary"):
-                try:
-                    u = auth.check_password(email, pw)
-                    st.session_state["auth_email"] = u["email"]
-                    st.rerun()
-                except auth.AuthError as exc:
-                    st.error(str(exc))
+                admin = auth.check_admin(email, pw)
+                if admin:
+                    if not admin_allowed_here():
+                        st.error("The demo admin login only works on the StepCue laptop itself.")
+                    else:
+                        st.session_state["auth_user"] = dict(admin, at=time.time())
+                        st.rerun()
+                else:
+                    try:
+                        u = auth.check_password(email, pw)
+                        st.session_state["auth_email"] = u["email"]
+                        st.rerun()
+                    except auth.AuthError as exc:
+                        st.error(str(exc))
     st.stop()
 
 
@@ -158,6 +166,17 @@ def _step_two(email):
     st.stop()
 
 
+def admin_allowed_here():
+    """The demo admin skips two-step sign-in, so by default it only works from this laptop."""
+    if os.environ.get("STEPCUE_ADMIN_ANYWHERE", "").lower() in ("1", "on", "true", "yes"):
+        return True
+    try:
+        ip = st.context.ip_address
+    except Exception:
+        return False
+    return ip in (None, "127.0.0.1", "::1")
+
+
 def sign_out():
     for k in ("auth_user", "auth_email", "enroll_secret"):
         st.session_state.pop(k, None)
@@ -173,6 +192,11 @@ def require_login():
         return {"email": "demo@local", "name": "Demo", "role": os.environ.get("STEPCUE_ROLE", "care"),
                 "demo": True}
     u = st.session_state.get("auth_user")
+    if u and u.get("admin"):
+        if time.time() - u["at"] < SESSION_HOURS * 3600 and auth.admin_enabled() and admin_allowed_here():
+            return u
+        st.session_state.pop("auth_user", None)
+        u = None
     if u:
         fresh = time.time() - u["at"] < SESSION_HOURS * 3600
         still = auth.find_user(auth.load_users(), u["email"])

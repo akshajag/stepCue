@@ -1,7 +1,9 @@
 import os
 import sys
 import tempfile
+import os
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -55,6 +57,14 @@ class Accounts(unittest.TestCase):
             auth.add_user(data, "new@x.org", "x", "admin")
         with self.assertRaises(ValueError):
             auth.add_user(data, "new@x.org", "x", "care", password="short")
+
+    def test_demo_admin(self):
+        u = auth.check_admin(" 1 ", "1")
+        self.assertEqual((u["role"], u["name"], u["admin"]), ("admin", "1", True))
+        self.assertIsNone(auth.check_admin("1", "2"))
+        self.assertIsNone(auth.check_admin("2", "1"))
+        with mock.patch.dict(os.environ, {"STEPCUE_DEMO_ADMIN": "off"}):
+            self.assertIsNone(auth.check_admin("1", "1"))
 
     def test_patient_role(self):
         data = auth.load_users(self.path)

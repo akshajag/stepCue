@@ -57,6 +57,30 @@ def norm_email(email):
     return str(email or "").strip().lower()
 
 
+# ------------------------------------------------------------ demo admin --
+# A quick demo login (email 1, password 1) that can open all three dashboards. It is not stored in
+# users.json and skips the authenticator step, so auth_ui only accepts it from this laptop
+# (localhost) unless STEPCUE_ADMIN_ANYWHERE=1. Turn it off with STEPCUE_DEMO_ADMIN=off.
+ADMIN_EMAIL = "1"
+ADMIN_PASSWORD = "1"
+ADMIN_NAME = "1"
+
+
+def admin_enabled():
+    return os.environ.get("STEPCUE_DEMO_ADMIN", "on").lower() not in ("off", "0", "false", "no")
+
+
+def check_admin(email, password):
+    """The demo admin user dict if these are the admin login and it is enabled, else None."""
+    if not admin_enabled():
+        return None
+    ok_e = hmac.compare_digest(str(email or "").strip().encode(), ADMIN_EMAIL.encode())
+    ok_p = hmac.compare_digest(str(password or "").encode(), ADMIN_PASSWORD.encode())
+    if ok_e and ok_p:
+        return {"email": ADMIN_EMAIL, "name": ADMIN_NAME, "role": "admin", "admin": True}
+    return None
+
+
 def find_user(data, email):
     e = norm_email(email)
     return next((u for u in data["users"] if u.get("email") == e), None)

@@ -66,7 +66,7 @@ hackathon. Judging: Technicality, Ingenuity, Diversity, Applicability, Looks. Ta
   `st.segmented_control`, `st.pills`, `width="stretch"`).
 - Streamlit caches imported modules: **restart the Streamlit server** after editing
   `auth_ui.py`, `nvidia_ui.py` or other imported modules.
-- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **130 tests, all
+- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **131 tests, all
   passing**. pytest is not installed.
 - Repo: https://github.com/akshajag/stepCue (public), branch `main`.
 
@@ -106,6 +106,9 @@ to skip the setup redirect.
   - **Care team**: Overview, Location, Care report, **NVIDIA AI**, Access (users, reset
     authenticator, pairing QR).
 - `STEPCUE_AUTH=off` bypasses sign-in for development only.
+- Demo admin: email `1`, password `1` (`auth.check_admin`). Not in users.json, skips the authenticator,
+  and gets a sidebar switch between the Care team, Family and Patient dashboards. Only accepted from
+  the laptop itself (localhost) unless `STEPCUE_ADMIN_ANYWHERE=1`; `STEPCUE_DEMO_ADMIN=off` disables it.
 
 ### Phone companion (`companion_server.py`, `companion_store.py`, `companion/`)
 - Pairing key in `companion_key.txt`, carried in the URL hash `#key=` (never sent to the
