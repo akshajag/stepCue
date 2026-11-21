@@ -1,0 +1,9 @@
+{
+  "_comment": "Demo places around a public park (San Francisco Panhandle). Replace with the wearer's own places; this file stays on the laptop.",
+  "places": [
+    {"name": "Home", "kind": "home", "lat": 37.77105, "lon": -122.44020, "radius_m": 45},
+    {"name": "Park path", "kind": "outdoor", "lat": 37.77250, "lon": -122.44650, "radius_m": 140},
+    {"name": "Grocery store", "kind": "shop", "lat": 37.77455, "lon": -122.45180, "radius_m": 45},
+    {"name": "Community center", "kind": "community", "lat": 37.76960, "lon": -122.44860, "radius_m": 50}
+  ]
+}

@@ -1,0 +1,40 @@
+# OpenShell egress preset for the StepCue care skill inside a NemoClaw sandbox.
+# Deny-by-default stays on; this only opens the NVIDIA endpoints StepCue's models use,
+# and only for the Python interpreter that runs the StepCue scripts.
+#   nemoclaw <sandbox> policy add --from-file nemoclaw/presets/stepcue-nvidia.yaml --dry-run
+#   nemoclaw <sandbox> policy add --from-file nemoclaw/presets/stepcue-nvidia.yaml --yes
+preset:
+  name: stepcue-nvidia
+  description: "StepCue care skill: NVIDIA NIM chat, embeddings, rerank and Riva TTS only"
+
+network_policies:
+  stepcue_nim:
+    name: stepcue_nim
+    endpoints:
+      - host: integrate.api.nvidia.com     # Nemotron agent, Ultra report, guards, translate, embed
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: POST, path: "/v1/chat/completions" }
+          - allow: { method: POST, path: "/v1/embeddings" }
+          - allow: { method: GET, path: "/v1/models" }
+      - host: ai.api.nvidia.com            # Nemotron rerank
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: POST, path: "/v1/retrieval/**" }
+    binaries:
+      - { path: /usr/bin/python3 }
+      - { path: /usr/local/bin/python3 }
+  stepcue_riva:
+    name: stepcue_riva
+    endpoints:
+      - host: grpc.nvcf.nvidia.com         # Riva Magpie TTS (gRPC, no L7 rules possible)
+        port: 443
+        access: full
+        tls: skip
+    binaries:
+      - { path: /usr/bin/python3 }
+      - { path: /usr/local/bin/python3 }
