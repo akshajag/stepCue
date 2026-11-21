@@ -66,7 +66,7 @@ hackathon. Judging: Technicality, Ingenuity, Diversity, Applicability, Looks. Ta
   `st.segmented_control`, `st.pills`, `width="stretch"`).
 - Streamlit caches imported modules: **restart the Streamlit server** after editing
   `auth_ui.py`, `nvidia_ui.py` or other imported modules.
-- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **121 tests, all
+- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **123 tests, all
   passing**. pytest is not installed.
 - Repo: https://github.com/akshajag/stepCue (public), branch `main`.
 
@@ -142,7 +142,13 @@ to skip the setup redirect.
   `android_summary`, and an Android freeze suspect counts as "phone agrees" in verification. Shown in
   the dashboard's phone cell and passed to the Nemotron `get_phone_and_watch` tool.
 - Gait math test: `javac -d out android/src/com/stepcue/companion/Features.java android/test/FeaturesTest.java && java -cp out FeaturesTest`.
-- Not tested on a real Android phone yet.
+- Verified live with a Google Pixel 9 (12 sensors at 50 Hz).
+- **Activity page** (`phone_ui.py`, care team and family): 3 SVG gauges (walking pace, freeze score,
+  phone battery), 8 tiles, a per-minute pace + freeze-score chart (last 3 h) and a 7-day steps bar
+  chart with a goal line (`STEPCUE_STEP_GOAL`, default 5000). History comes from
+  `companion_store.android_days` / `android_minutes` (per-day totals and per-minute rows rolled up
+  in `add_android`). Days without data show "no data", never 0. No clinical vitals (blood pressure,
+  glucose, etc.): StepCue has no sensor for them, so they are not shown.
 
 ### NVIDIA stack (for Best Use of Nemotron)
 All of it goes through `nvidia_nim.py`: the `MODELS` registry (each model can be overridden

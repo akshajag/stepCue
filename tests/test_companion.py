@@ -65,6 +65,27 @@ class Android(unittest.TestCase):
         self.assertEqual(summ["verified"]["phone_agrees"], 1)
         self.assertIsNone(cs.android_summary(d["android"], now=NOW + 120))   # stale after a minute
 
+    def test_daily_steps_and_minutes(self):
+        d = cs.empty()
+        t = NOW
+        for i, steps in enumerate([10, 14, 20, 3, 8]):          # count restarts after 20 (app restarted)
+            cs.add_android(d, {"motion": "walking", "cadence": 100, "steps_session": steps,
+                               "freeze_index": 0.5 + i, "turning": i == 2}, now=t + 2 * i)
+        today = cs.android_days(d, 7, now=t + 10)
+        self.assertEqual(len(today), 7)
+        self.assertIsNone(today[0]["steps"])                     # no data is not zero
+        self.assertEqual(today[-1]["steps"], 4 + 6 + 3 + 5)      # first reading only sets the baseline
+        self.assertGreater(today[-1]["walk_min"], 0)
+        mins = cs.android_minutes(d, 3, now=t + 10)
+        self.assertTrue(mins and mins[-1]["cadence"] == 100)
+        self.assertEqual(max(m["freeze_index"] for m in mins), 4.5)
+        self.assertTrue(any(m["turning"] for m in mins))
+
+    def test_gauge_svg_handles_missing_and_out_of_range(self):
+        import phone_ui
+        self.assertIn("<svg", phone_ui.gauge_svg(None, 0, 100))
+        self.assertIn("<svg", phone_ui.gauge_svg(500, 0, 140, bands=[(0, 70, "#000")], ticks=(0, 140)))
+
     def test_android_url_keeps_key_in_hash(self):
         url = cs.android_url("192.168.4.2", 8080, "k123")
         self.assertEqual(url, "http://192.168.4.2:8080/android#key=k123")

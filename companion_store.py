@@ -32,7 +32,8 @@ VERIFY_NEAR_SEC = 10
 
 def empty():
     return {"checkins": [], "confirmations": {}, "phone": None, "phone_series": [],
-            "watch": {}, "hr_series": [], "prefs": {}, "android": None, "android_series": []}
+            "watch": {}, "hr_series": [], "prefs": {}, "android": None, "android_series": [],
+            "android_days": {}, "android_minutes": [], "android_steps_seen": None}
 
 
 def read_companion(path=None):
@@ -167,12 +168,96 @@ def add_android(data, body, now=None):
         rec["sensors"] = [str(x)[:40] for x in sensors[:24]]
     if body.get("device"):
         rec["device"] = str(body["device"])[:60]
+    prev = data.get("android")
     data["android"] = rec
+    _android_history(data, rec, None if not prev else prev.get("t"))
     data["android_series"].append([round(t, 1), motion, rec.get("cadence", 0), rec.get("freeze_index", 0),
                                    bool(rec.get("freeze_suspect")), bool(rec.get("turning"))])
     del data["android_series"][:-MAX_SERIES]
     add_phone(data, motion, rec.get("acc_rms"), now=t)
     return rec
+
+
+MAX_DAYS = 30
+MAX_MINUTES = 1440        # one day of per-minute rows
+
+
+def day_key(t):
+    return time.strftime("%Y-%m-%d", time.localtime(t))
+
+
+def _android_history(data, rec, prev_t):
+    """Roll each 2 s reading into per-day totals and per-minute rows for the charts."""
+    t = rec["t"]
+    seen, now_steps = data.get("android_steps_seen"), rec.get("steps_session")
+    delta = 0
+    if now_steps is not None:
+        if seen is None:
+            delta = 0                                   # first reading: we don't know when these happened
+        elif now_steps >= seen:
+            delta = now_steps - seen
+        else:
+            delta = now_steps                           # the app restarted its count
+        data["android_steps_seen"] = now_steps
+    delta = int(min(max(delta, 0), 400))                # a 2 s gap can't hold more than a few steps
+    gap = 0 if prev_t is None else min(max(t - prev_t, 0), 5)
+    walking = rec["motion"] == "walking"
+
+    days = data.setdefault("android_days", {})
+    d = days.setdefault(day_key(t), {"steps": 0, "walk_sec": 0, "freeze_sec": 0, "readings": 0})
+    d["steps"] += delta
+    d["walk_sec"] = round(d["walk_sec"] + (gap if walking else 0), 1)
+    d["freeze_sec"] = round(d["freeze_sec"] + (gap if rec.get("freeze_suspect") else 0), 1)
+    d["readings"] += 1
+    for k in sorted(days)[:-MAX_DAYS]:
+        del days[k]
+
+    mins = data.setdefault("android_minutes", [])
+    m0 = int(t // 60) * 60
+    if not mins or mins[-1][0] != m0:
+        mins.append([m0, 0, 0.0, 0, 0.0, 0, 0, 0, 0, None])
+    row = mins[-1]           # [minute, readings, cadence_sum, cadence_n, fi_max, steps, walking, suspect, turning, battery]
+    row[1] += 1
+    if rec.get("cadence"):
+        row[2] = round(row[2] + rec["cadence"], 1)
+        row[3] += 1
+    row[4] = max(row[4], min(float(rec.get("freeze_index", 0)), 20.0))
+    row[5] += delta
+    row[6] += int(walking)
+    row[7] += int(bool(rec.get("freeze_suspect")))
+    row[8] += int(bool(rec.get("turning")))
+    if rec.get("battery") is not None:
+        row[9] = rec["battery"]
+    del mins[:-MAX_MINUTES]
+
+
+def android_days(companion, n=7, now=None):
+    """The last n days, oldest first. Days with no phone data have steps None (not 0)."""
+    now = time.time() if now is None else now
+    days = companion.get("android_days") or {}
+    out = []
+    for i in range(n - 1, -1, -1):
+        t = now - i * 86400
+        k = day_key(t)
+        d = days.get(k)
+        out.append({"date": k, "label": "Today" if i == 0 else time.strftime("%a", time.localtime(t)),
+                    "steps": None if not d else d["steps"],
+                    "walk_min": None if not d else round(d["walk_sec"] / 60, 1),
+                    "freeze_sec": None if not d else d.get("freeze_sec", 0)})
+    return out
+
+
+def android_minutes(companion, hours=3, now=None):
+    """Per-minute rows from the last few hours as dicts for charting."""
+    now = time.time() if now is None else now
+    out = []
+    for r in companion.get("android_minutes") or []:
+        if now - r[0] > hours * 3600:
+            continue
+        out.append({"t": r[0], "cadence": round(r[2] / r[3]) if r[3] else None, "freeze_index": r[4],
+                    "steps": r[5], "walking": r[6] / r[1] if r[1] else 0, "suspect": r[7] > 0,
+                    "turning": r[8] > 0, "battery": r[9]})
+    return out
 
 
 def _num(v):
