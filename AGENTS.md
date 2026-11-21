@@ -66,7 +66,7 @@ hackathon. Judging: Technicality, Ingenuity, Diversity, Applicability, Looks. Ta
   `st.segmented_control`, `st.pills`, `width="stretch"`).
 - Streamlit caches imported modules: **restart the Streamlit server** after editing
   `auth_ui.py`, `nvidia_ui.py` or other imported modules.
-- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **123 tests, all
+- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **130 tests, all
   passing**. pytest is not installed.
 - Repo: https://github.com/akshajag/stepCue (public), branch `main`.
 
@@ -149,6 +149,29 @@ to skip the setup redirect.
   `companion_store.android_days` / `android_minutes` (per-day totals and per-minute rows rolled up
   in `add_android`). Days without data show "no data", never 0. No clinical vitals (blood pressure,
   glucose, etc.): StepCue has no sensor for them, so they are not shown.
+
+### Per-patient training (`personal_model.py`, `training_ui.py`)
+- Labels: sitting, standing, walking, frozen. A helper taps the label on the dashboard's **Training**
+  page (care team) or the phone's "Teach StepCue" screen; the label lives in `training/session.json`.
+- While a label is on (after a 3 s settle), every `/api/android` reading is saved to
+  `training/<patient>/samples.jsonl` with 11 phone features plus 20 ankle features. The ankle features
+  come from `gait_classifier.py`, which now writes an optional `ankle` block (17 window features +
+  mean accel x/y/z) into state.json. The phone sends 1 reading a second while training.
+- "Build the model" (`pm.train`) fits a Random Forest per patient: phone-only, plus phone + ankle when
+  most samples have ankle data. Scored with GroupKFold by recording segment (falls back to a random
+  split, flagged "optimistic", when each label was recorded only once). Also learns their walking
+  pace (25th to 75th percentile cadence).
+- Live: `/api/android` runs the active patient's model; `status.phase` goes to the phone (which buzzes
+  the cue when it says frozen with 70%+ confidence), the Activity page and the Nemotron tool.
+- `training/` is gitignored (personal movement data).
+
+### ESP32 over Bluetooth (`esp_bt_bridge.py`, `esp32_ankle_bt/`)
+- The ESP32 links to the laptop by Bluetooth Classic SPP (pair "StepCue_Ankle" in Windows; COM port
+  found automatically) or BLE Nordic UART (`--ble NAME`, needs `pip install bleak`). The bridge
+  forwards the same CSV lines to UDP 127.0.0.1:5005 and returns cues from UDP 5006, so the locked
+  contract and `gait_classifier.py` are unchanged. `python run_demo.py --bluetooth` starts it.
+- `esp32_ankle_bt/esp32_ankle_bt.ino` is the BluetoothSerial version of the firmware. Not compiled
+  or run on hardware yet; pyserial is optional (falls back to opening the COM port directly).
 
 ### NVIDIA stack (for Best Use of Nemotron)
 All of it goes through `nvidia_nim.py`: the `MODELS` registry (each model can be overridden

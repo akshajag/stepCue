@@ -67,7 +67,7 @@ def main():
     javac, keytool = jdk("javac"), jdk("keytool")
     shutil.rmtree(OUT, ignore_errors=True)
     for d in ("res", "gen", "classes", "dex"):
-        os.makedirs(os.path.join(OUT, d))
+        os.makedirs(os.path.join(OUT, d), exist_ok=True)
 
     print("1/6 resources")
     run([aapt2, "compile", "--dir", os.path.join(HERE, "res"), "-o", os.path.join(OUT, "res", "res.zip")])

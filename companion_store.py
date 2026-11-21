@@ -427,7 +427,7 @@ def android_summary(rec, now=None):
         return None
     out = {k: rec.get(k) for k in ("motion", "cadence", "steps_10s", "steps_session", "turning", "turn_deg",
                                    "freeze_index", "freeze_suspect", "stairs", "in_pocket", "battery",
-                                   "charging", "device", "hz") if rec.get(k) is not None}
+                                   "charging", "device", "hz", "phase") if rec.get(k) is not None}
     out["sensors"] = len(rec.get("sensors") or [])
     out["ago"] = ago(rec["t"], now)
     return out

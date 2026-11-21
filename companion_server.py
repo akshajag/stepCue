@@ -34,6 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import companion_store as cs
 from alert_notifier import load_dotenv
+import personal_model as pm
 from location_io import LOCATION_FILE, add_fix, read_location, write_json
 from state_io import read_state, state_age_sec
 
@@ -109,6 +110,9 @@ def status_payload(now=None):
             "setup": setup_info(),
             "cue": {"bpm": int(state.get("bpm") or 100), "haptic": int(state.get("haptic") or 0)},
             "voice": voice_info(comp),
+            "training": pm.phone_status(now),
+            "phase": (comp.get("android") or {}).get("phase") if comp.get("android")
+            and now - comp["android"].get("t", 0) < 10 else None,
             "server_time": now}
 
 
@@ -156,6 +160,31 @@ def voice_checkin(comp, body, now):
         log(f"spoken check-in: {rec['kind']}")
     return 200, {"ok": True, "heard": heard["transcript"], "kind": heard["kind"],
                  "walking_feel": heard["walking_feel"], "saved": rec is not None}
+
+
+def train_action(body, now):
+    """Training screen buttons: label, stop, patient, build."""
+    action = body.get("action")
+    if action == "label":
+        pm.set_label(body.get("label"), now)
+    elif action == "stop":
+        pm.stop_label()
+    elif action == "patient":
+        pm.set_active(str(body.get("id", "")))
+    elif action == "train":
+        pid, _ = pm.active()
+        if not pid:
+            raise ValueError("add a patient on the dashboard first")
+        pm.stop_label()
+        r = pm.train(pid, now)
+        best = r.get("both") or r["phone"]
+        log(f"personal model trained: {r['n']} samples, {best['accuracy']:.0%}")
+        return 200, {"ok": True, "accuracy": round(best["accuracy"], 3), "n": r["n"], "labels": r["labels"],
+                     "skipped": r["skipped"], "cv": r["cv"], "uses_ankle": r.get("both") is not None,
+                     "pace": r.get("pace")}
+    else:
+        raise ValueError("unknown action")
+    return 200, {"ok": True, "training": pm.phone_status(now)}
 
 
 def setup_info():
@@ -207,7 +236,16 @@ def handle_api(path, body, now=None):
                         write_json(LOCATION_FILE, loc)
                 return 200, {"ok": True, "location": placed}
             if path == "/api/android":
-                cs.add_android(comp, body, now=now)
+                rec = cs.add_android(comp, body, now=now)
+                state = read_state()
+                saved = pm.record(rec, state, now)            # per-patient training, when a label is on
+                try:
+                    phase = None if pm.session(now)["label"] else pm.predict(rec, state, now=now)
+                except Exception as exc:                      # a broken model must never stop the data
+                    log(f"personal model failed: {type(exc).__name__}")
+                    phase = None
+                if phase:
+                    comp["android"]["phase"] = {k: phase[k] for k in ("label", "word", "conf", "source", "probs")}
                 cs.write_companion(comp)
                 placed = False
                 if body.get("lat") is not None and body.get("lon") is not None:
@@ -215,7 +253,9 @@ def handle_api(path, body, now=None):
                     placed = add_fix(loc, body["lat"], body["lon"], t=now, acc=body.get("acc_m"), source="android")
                     if placed:
                         write_json(LOCATION_FILE, loc)
-                return 200, {"ok": True, "location": placed}
+                return 200, {"ok": True, "location": placed, "training_sample": saved}
+            if path == "/api/train":
+                return train_action(body, now)
             if path == "/api/health":
                 parsed = cs.parse_health(body, now=now)
                 src = "SensorLog" if any(str(k).startswith(("locationLatitude", "motion", "logging"))

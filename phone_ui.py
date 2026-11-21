@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 import companion_store as cs
+import personal_model as pm
 
 STEP_GOAL = int(os.environ.get("STEPCUE_STEP_GOAL", "5000"))
 FI_WATCH, FI_FREEZE = 1.5, 2.0          # same threshold as the phone app (Features.FI_FREEZE)
@@ -229,7 +230,13 @@ def activity_page(read_state):
     turns_hr = sum(1 for m in mins if m["turning"] and now - m["t"] <= 3600)
     d = not live                       # dim live-only values when the phone is quiet
 
+    phase = rec.get("phase") if live else None
+    pid = pm.active()[0]
+    model = pm.model_info(pid) if pid else None
     tiles = [
+        tile("walk", esc(phase["word"]) + f'<small>{phase["conf"]:.0%} sure</small>' if phase else "—",
+             "Doing now (their own model)" if model else "Doing now (train a model first)",
+             "a" if phase and phase["label"] == "frozen" else ("" if phase else "n"), dim=not phase),
         tile("steps", f'{today["steps"] or 0:,}<small>steps</small>', "Steps today (phone)"),
         tile("walk", f'{walk_min:.0f}<small>min</small>', "Time walking today"),
         tile("pace", (f'{int(cad)}<small>steps/min</small>' if live and cad else "—"), "Walking pace now", dim=d),
@@ -253,7 +260,8 @@ def activity_page(read_state):
                                               fill=TEAL if pace_tone == "ok" else AMBER),
                     f'{int(cad)}<small style="font-size:0.9rem;color:var(--muted)"> steps/min</small>'
                     if live and cad else "—", pace_word, pace_tone,
-                    "Most adults walk about 90–120 steps a minute.")
+                    (f'Their usual pace: {model["pace"]["low"]}–{model["pace"]["high"]} steps a minute (from training).'
+                     if model and model.get("pace") else "Most adults walk about 90–120 steps a minute."))
     if not live:
         fw, ft = "No signal", "n"
     elif fi >= FI_FREEZE and rec.get("freeze_suspect"):

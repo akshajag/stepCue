@@ -282,9 +282,16 @@ public class SensorService extends Service implements SensorEventListener, Locat
             } catch (Exception ex) {
                 lastError = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             }
-            if (running) h.postDelayed(this, SEND_MS);
+            if (running) h.postDelayed(this, training() ? 1000 : SEND_MS);   // 1 a second while teaching
         }
     };
+
+    /** True while a helper is recording a label for the patient's own model. */
+    static boolean training() {
+        JSONObject s = lastStatus;
+        JSONObject tr = s == null ? null : s.optJSONObject("training");
+        return tr != null && !tr.isNull("label");
+    }
 
     private JSONObject summary() throws Exception {
         double now = SystemClock.elapsedRealtimeNanos() / 1e9;
@@ -372,6 +379,10 @@ public class SensorService extends Service implements SensorEventListener, Locat
                 JSONObject cue = s.optJSONObject("cue");
                 int bpm = cue != null ? cue.optInt("bpm", 100) : 100;
                 boolean want = Net.prefs(SensorService.this).getBoolean("buzz", true);
+                JSONObject phase = s.optJSONObject("phase");
+                boolean personal = phase != null && "frozen".equals(phase.optString("label"))
+                        && phase.optDouble("conf", 0) >= 0.7;      // the patient's own model sees a freeze
+                if (personal && !"FREEZE".equals(st)) st = "FREEZE";
                 if ("FREEZE".equals(st) && want) {
                     if (!"FREEZE".equals(cueStatus) || bpm != cueBpm) startBuzz(bpm, !"FREEZE".equals(cueStatus));
                 } else if ("FREEZE".equals(cueStatus)) {

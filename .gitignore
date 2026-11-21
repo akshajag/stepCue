@@ -35,3 +35,6 @@ android/build/
 android/*.jks
 android_pair_qr.png
 companion/*.idsig
+
+# Per-patient training data and models (personal movement data, stays on this laptop)
+training/

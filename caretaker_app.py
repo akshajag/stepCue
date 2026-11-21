@@ -28,6 +28,7 @@ import auth_ui
 import companion_store as cs
 import nvidia_ui
 import phone_ui
+import training_ui
 from config import (CUE_PORT, ESP32_IP, PROLONGED_FREEZE_SEC, SIM_CONTROL_PORT,
                     SIM_IP)
 from dashboard_model import (decision_summary, episode_stats, freshness,
@@ -1178,12 +1179,14 @@ def patient_view():
 
 # ------------------------------------------------------------- page switch --
 PATIENT = user["role"] == "patient"
-PAGES = (["Overview", "Activity", "Location", "Care report", "NVIDIA AI", "Access"] if CARE
+PAGES = (["Overview", "Activity", "Training", "Location", "Care report", "NVIDIA AI", "Access"] if CARE
          else ["My day"] if PATIENT else ["Today", "Activity", "Location"])
 page = st.segmented_control("View", PAGES, default=PAGES[0], key=f"page_{user['role']}",
                             label_visibility="collapsed") or PAGES[0]
 if page == "Activity":
     phone_ui.activity_page(read_state)
+elif page == "Training":
+    training_ui.training_page()
 elif page == "Location":
     location_page()
 elif page == "Care report":

@@ -58,6 +58,7 @@ class GaitLoop:
         self.cadence = None
         self.motion = MotionTracker()
         self.last_turn_end = -1e9      # tracker time (s) when the last turn finished
+        self.ankle = None              # latest feature snapshot for per-patient training (personal_model.py)
         self.esp_addr = None
         self.cue_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -197,11 +198,14 @@ class GaitLoop:
         status, fi = self.status, round(self.fi, 2)
         motion = self.motion.summary()
         motion["cadence_spm"] = motion["cadence_spm"] or self.cadence
+        ankle = self.ankle
 
         def mutate(st):
             st["status"] = status
             st["freeze_index"] = fi
             st["motion"] = motion                  # optional block, owned by this loop
+            if ankle is not None:
+                st["ankle"] = ankle                # optional: features for per-patient training
             if ep is not None:
                 eps = st.setdefault("episodes", [])
                 for i, old in enumerate(eps):
@@ -241,6 +245,9 @@ class GaitLoop:
 
         window = np.array(list(self.buf)[-WINDOW_SAMPLES:])
         pred = self.classify(window)
+        if self.hops % STATE_WRITE_EVERY == 0:
+            feats = extract_features(window, True).tolist() + window[:, :3].mean(axis=0).tolist()
+            self.ankle = {"t": round(time.time(), 2), "features": [round(float(v), 4) for v in feats]}
         self.fi = 0.5 * self.fi + 0.5 * freeze_index(window)
         self.recent.append(pred)
 

@@ -28,7 +28,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -51,6 +53,15 @@ public class MainActivity extends Activity {
     private boolean helpArmed = false;
     private int pendingId = -1;
     private boolean visible = false;
+    // training mode
+    private LinearLayout trainCard, patientRow;
+    private TextView trainHead, trainInfo, phaseText;
+    private Button trainToggle, stopRecBtn, buildBtn;
+    private final Map<String, Button> labelBtns = new LinkedHashMap<>();
+    private boolean trainOpen = false;
+    private String patientsKey = "";
+    static final String[][] LABELS = {{"sitting", "Sitting"}, {"standing", "Standing"},
+            {"walking", "Walking"}, {"frozen", "Frozen"}};
 
     @Override
     protected void onCreate(Bundle b) {
@@ -244,6 +255,10 @@ public class MainActivity extends Activity {
         statusSub.setPadding(0, dp(4), 0, 0);
         statusCard.addView(statusBig);
         statusCard.addView(statusSub);
+        phaseText = text("", 18, TEAL, true);
+        phaseText.setPadding(0, dp(6), 0, 0);
+        phaseText.setVisibility(View.GONE);
+        statusCard.addView(phaseText);
         startBtn = button("Start", TEAL, Color.WHITE, v -> startFlow());
         statusCard.addView(startBtn);
 
@@ -284,6 +299,37 @@ public class MainActivity extends Activity {
             render();
         });
         cueCard.addView(buzzBtn);
+
+        // training mode (a helper teaches StepCue this person's sitting, standing, walking and freezing)
+        trainToggle = button("Teach StepCue (training)", BG, INK, v -> { trainOpen = !trainOpen; render(); });
+        trainToggle.setBackground(round(BG, LINE));
+        trainToggle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        root.addView(trainToggle);
+        trainCard = card();
+        trainHead = text("Teach StepCue", 24, INK, true);
+        trainCard.addView(trainHead);
+        trainCard.addView(text("Tap what the person is doing right now and leave it on while they do it, about a minute each. "
+                + "When they freeze, tap Frozen (a helper can tap it for them).", 18, MUTED, false));
+        patientRow = new LinearLayout(this);
+        patientRow.setOrientation(LinearLayout.VERTICAL);
+        trainCard.addView(patientRow);
+        for (String[] lab : LABELS) {
+            final String key = lab[0];
+            Button b = button(lab[1], GREY_BG, INK, v -> trainPost("label", key, null, null));
+            labelBtns.put(key, b);
+            trainCard.addView(b);
+        }
+        stopRecBtn = button("Stop recording", BG, INK, v -> trainPost("stop", null, null, "Stopped."));
+        stopRecBtn.setBackground(round(BG, LINE));
+        trainCard.addView(stopRecBtn);
+        buildBtn = button("Build the model", INK, Color.WHITE, v -> {
+            say("Building... this takes a few seconds.", INK);
+            trainPost("train", null, null, null);
+        });
+        trainCard.addView(buildBtn);
+        trainInfo = text("", 17, MUTED, false);
+        trainInfo.setPadding(0, dp(10), 0, 0);
+        trainCard.addView(trainInfo);
 
         // what the phone senses
         senseCard = card();
@@ -367,6 +413,36 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void trainPost(String action, String label, String patient, String done) {
+        if (!Net.paired(this)) return;
+        io.execute(() -> {
+            try {
+                JSONObject j = new JSONObject();
+                j.put("action", action);
+                if (label != null) j.put("label", label);
+                if (patient != null) j.put("id", patient);
+                JSONObject r = Net.post(this, "/api/train", j);
+                JSONObject st = SensorService.lastStatus;
+                if (st != null && r.has("training")) st.put("training", r.getJSONObject("training"));
+                String msg = done;
+                if ("train".equals(action)) {
+                    int pct = (int) Math.round(r.optDouble("accuracy", 0) * 100);
+                    msg = "Model built from " + r.optInt("n") + " seconds. Right " + pct
+                            + "% of the time on data it hadn't seen"
+                            + (r.optBoolean("uses_ankle") ? " (phone + ankle sensor)." : " (phone only).");
+                } else if ("label".equals(action)) {
+                    msg = "Recording: " + word(label) + ". Keep going for about a minute.";
+                }
+                final String m = msg;
+                ui.post(() -> { if (m != null) say(m, TEAL); render(); });
+            } catch (Exception e) {
+                String why = e.getMessage() == null ? "" : e.getMessage();
+                ui.post(() -> say("train".equals(action) ? "Not enough recorded yet. Record at least two activities, "
+                        + "10 seconds or more each." : "Not sent. Is the phone on the same Wi-Fi? " + why, RED));
+            }
+        });
+    }
+
     // ------------------------------------------------------------- refresh --
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -390,8 +466,10 @@ public class MainActivity extends Activity {
         boolean paired = Net.paired(this);
         boolean on = SensorService.running;
         pairCard.setVisibility(paired ? View.GONE : View.VISIBLE);
-        for (View v : new View[]{statusCard, helpCard, feelCard, senseCard})
+        for (View v : new View[]{statusCard, helpCard, feelCard, senseCard, trainToggle})
             v.setVisibility(paired ? View.VISIBLE : View.GONE);
+        trainCard.setVisibility(paired && trainOpen ? View.VISIBLE : View.GONE);
+        trainToggle.setText(trainOpen ? "Close training" : "Teach StepCue (training)");
         startBtn.setVisibility(paired && !on ? View.VISIBLE : View.GONE);
         stopBtn.setVisibility(on ? View.VISIBLE : View.GONE);
         boolean buzz = Net.prefs(this).getBoolean("buzz", true);
@@ -446,6 +524,8 @@ public class MainActivity extends Activity {
             freezeCard.setVisibility(View.GONE);
         }
 
+        renderTraining(st);
+
         // live sensor readout
         JSONObject j = SensorService.lastSent;
         if (!on || j == null) {
@@ -467,10 +547,90 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void renderTraining(JSONObject st) {
+        JSONObject tr = st == null ? null : st.optJSONObject("training");
+        JSONObject phase = st == null ? null : st.optJSONObject("phase");
+        if (phase != null && (tr == null || tr.isNull("label"))) {
+            phaseText.setText("StepCue thinks: " + phase.optString("word") + "  ("
+                    + Math.round(phase.optDouble("conf") * 100) + "% sure, their own model)");
+            phaseText.setTextColor("frozen".equals(phase.optString("label")) ? RED : TEAL);
+            phaseText.setVisibility(View.VISIBLE);
+        } else {
+            phaseText.setVisibility(View.GONE);
+        }
+        if (!trainOpen) return;
+        if (tr == null || tr.isNull("patient")) {
+            trainHead.setText("Teach StepCue");
+            trainInfo.setText("First add the person on the laptop: dashboard, Training page, Add patient.");
+            for (Button b : labelBtns.values()) b.setEnabled(false);
+            buildBtn.setEnabled(false);
+            stopRecBtn.setVisibility(View.GONE);
+            return;
+        }
+        buildBtn.setEnabled(true);
+        JSONObject pat = tr.optJSONObject("patient");
+        trainHead.setText("Teach StepCue: " + pat.optString("name"));
+        JSONArray pats = tr.optJSONArray("patients");
+        String key = (pats == null ? "" : pats.toString()) + pat.optString("id");
+        if (!key.equals(patientsKey)) {          // person switch buttons, only when there is more than one
+            patientsKey = key;
+            patientRow.removeAllViews();
+            if (pats != null && pats.length() > 1) {
+                for (int i = 0; i < pats.length(); i++) {
+                    JSONObject p = pats.optJSONObject(i);
+                    final String id = p.optString("id");
+                    boolean on = id.equals(pat.optString("id"));
+                    Button b = button((on ? "\u2713 " : "") + p.optString("name"), on ? TEAL_BG : BG, on ? TEAL : INK,
+                            v -> trainPost("patient", null, id, "Switched person."));
+                    b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+                    if (!on) b.setBackground(round(BG, LINE));
+                    patientRow.addView(b);
+                }
+            }
+        }
+        String active = tr.isNull("label") ? null : tr.optString("label");
+        JSONObject counts = tr.optJSONObject("counts");
+        int goal = tr.optInt("goal", 60);
+        long since = (long) (tr.optDouble("since", 0) * 1000);
+        for (String[] lab : LABELS) {
+            Button b = labelBtns.get(lab[0]);
+            b.setEnabled(true);
+            int n = counts == null ? 0 : counts.optInt(lab[0]);
+            boolean on = lab[0].equals(active);
+            if (on) {
+                long secs = Math.max(0, (System.currentTimeMillis() - since) / 1000);
+                b.setText("\u25CF Recording " + lab[1] + "  " + secs + " s");
+                b.setBackground(round("frozen".equals(lab[0]) ? RED : TEAL, 0));
+                b.setTextColor(Color.WHITE);
+            } else {
+                b.setText(lab[1] + "  \u00B7  " + n + " / " + goal + " s" + (n >= goal ? "  \u2713" : ""));
+                b.setBackground(round(n >= goal ? TEAL_BG : GREY_BG, 0));
+                b.setTextColor(n >= goal ? TEAL : INK);
+            }
+        }
+        stopRecBtn.setVisibility(active != null ? View.VISIBLE : View.GONE);
+        JSONObject m = tr.optJSONObject("model");
+        StringBuilder info = new StringBuilder();
+        if (m != null) {
+            info.append("Model ready: right ").append(Math.round(m.optDouble("accuracy") * 100))
+                .append("% of the time on data it hadn't seen, from ").append(m.optInt("n")).append(" seconds.");
+            JSONObject pace = m.optJSONObject("pace");
+            if (pace != null) info.append("\nTheir usual walking pace: ").append(pace.optInt("low")).append("\u2013")
+                .append(pace.optInt("high")).append(" steps a minute.");
+            info.append("\nRecord more any time, then build again.");
+        } else {
+            info.append("No model yet. Record each activity, then tap Build the model.");
+        }
+        trainInfo.setText(info.toString());
+    }
+
     static String word(String m) {
-        switch (m) {
+        switch (m == null ? "" : m) {
             case "walking": return "walking";
             case "moving": return "moving";
+            case "sitting": return "sitting";
+            case "standing": return "standing";
+            case "frozen": return "frozen";
             default: return "still";
         }
     }

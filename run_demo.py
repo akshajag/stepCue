@@ -2,6 +2,7 @@
 
   python run_demo.py              # simulator + classifier + advisor + location + companion + dashboard
   python run_demo.py --hardware   # real ESP32: no simulator (join StepCue_AP Wi-Fi first)
+  python run_demo.py --bluetooth  # real ESP32 over Bluetooth: no simulator, starts esp_bt_bridge.py
   python run_demo.py --same-window  # keep all logs in this terminal
 
 By default each part opens in its own console window on Windows, so you can
@@ -16,6 +17,8 @@ import time
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hardware", action="store_true", help="do not start the simulator")
+    ap.add_argument("--bluetooth", action="store_true",
+                    help="ESP32 connected over Bluetooth: start esp_bt_bridge.py instead of the simulator")
     ap.add_argument("--same-window", action="store_true")
     ap.add_argument("--no-dashboard", action="store_true")
     a = ap.parse_args()
@@ -24,6 +27,9 @@ def main():
     parts = [("classifier", [py, "-u", "gait_classifier.py"]),
              ("advisor", [py, "-u", "nemotron_advisor.py"]),
              ("alerts", [py, "-u", "alert_notifier.py"])]   # sends only if .env has ntfy/Twilio keys
+    if a.bluetooth:
+        a.hardware = True
+        parts.append(("bluetooth", [py, "-u", "esp_bt_bridge.py"]))
     if not a.hardware:
         parts.append(("simulator", [py, "-u", "sim_esp32.py"]))
     # Outdoor location: a simulated walk in the demo, the wearer's phone (OwnTracks) on hardware.
