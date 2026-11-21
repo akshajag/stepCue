@@ -32,7 +32,7 @@ VERIFY_NEAR_SEC = 10
 
 def empty():
     return {"checkins": [], "confirmations": {}, "phone": None, "phone_series": [],
-            "watch": {}, "hr_series": [], "prefs": {}}
+            "watch": {}, "hr_series": [], "prefs": {}, "android": None, "android_series": []}
 
 
 def read_companion(path=None):
@@ -102,6 +102,11 @@ def lan_ip():
         s.close()
 
 
+def android_url(host=None, port=8080, key=None):
+    """Install page for the Android app (plain HTTP on the watch-data port; the key stays in the hash)."""
+    return f"http://{host or lan_ip()}:{port}/android#key={key or pairing_key()}"
+
+
 def companion_url(host=None, port=None, key=None):
     return f"https://{host or lan_ip()}:{port or COMPANION_PORT}/#key={key or pairing_key()}"
 
@@ -130,6 +135,44 @@ def add_phone(data, motion, rms=None, now=None):
     data["phone"] = {"t": t, "motion": motion, "rms": None if rms is None else round(float(rms), 4)}
     data["phone_series"].append([round(t, 1), motion])
     del data["phone_series"][:-MAX_SERIES]
+
+
+# Fields the Android app may send (POST /api/android). Anything else is dropped. Location goes to
+# location.json (on this laptop) and is not kept in the android record.
+ANDROID_NUM = ("cadence", "cadence_steps", "acc_rms", "gyro_rms", "vert_rms", "yaw_rate", "turn_deg",
+               "freeze_index", "hz", "samples", "steps_10s", "steps_session", "pressure_hpa", "alt_change_m",
+               "light_lux", "heading", "pitch", "roll", "battery", "android", "speed_ms")
+ANDROID_BOOL = ("turning", "freeze_suspect", "proximity_near", "in_pocket", "charging")
+STAIRS = ("up", "down", "level")
+
+
+def add_android(data, body, now=None):
+    """Store one feature summary from the Android app. Returns the cleaned record."""
+    motion = body.get("motion")
+    if motion not in PHONE_MOTION:
+        raise ValueError("unknown motion")
+    t = time.time() if now is None else now
+    rec = {"t": t, "motion": motion}
+    for k in ANDROID_NUM:
+        v = _num(body.get(k))
+        if v is not None and abs(v) < 1e7:
+            rec[k] = round(v, 3)
+    for k in ANDROID_BOOL:
+        if isinstance(body.get(k), bool):
+            rec[k] = body[k]
+    if body.get("stairs") in STAIRS:
+        rec["stairs"] = body["stairs"]
+    sensors = body.get("sensors")
+    if isinstance(sensors, list):
+        rec["sensors"] = [str(x)[:40] for x in sensors[:24]]
+    if body.get("device"):
+        rec["device"] = str(body["device"])[:60]
+    data["android"] = rec
+    data["android_series"].append([round(t, 1), motion, rec.get("cadence", 0), rec.get("freeze_index", 0),
+                                   bool(rec.get("freeze_suspect")), bool(rec.get("turning"))])
+    del data["android_series"][:-MAX_SERIES]
+    add_phone(data, motion, rec.get("acc_rms"), now=t)
+    return rec
 
 
 def _num(v):
@@ -235,7 +278,10 @@ def verification(episode, companion, now=None):
     if t is None:
         return "unknown", ""
     dur = float(episode.get("duration_sec") or 0)
-    near = [m for ts, m in companion["phone_series"] if t - 2 <= ts <= t + max(dur, 2) + VERIFY_NEAR_SEC / 2]
+    lo, hi = t - 2, t + max(dur, 2) + VERIFY_NEAR_SEC / 2
+    if any(r[4] for r in companion.get("android_series") or [] if lo <= r[0] <= hi):
+        return "phone_agrees", "Phone felt the freeze too"
+    near = [m for ts, m in companion["phone_series"] if lo <= ts <= hi]
     if not near:
         return "unknown", ""
     if near.count("walking") > len(near) / 2:
@@ -282,7 +328,21 @@ def companion_summary(companion, episodes, now=None):
         "steps": None if not steps else {"count": steps["count"], "ago": ago(steps["t"], now)},
         "phone": None if not phone or now - phone["t"] > 60 else {"motion": phone["motion"],
                                                                    "ago": ago(phone["t"], now)},
+        "android": android_summary(companion.get("android"), now),
         "verified": {"confirmed": ver.count("confirmed"), "denied": ver.count("denied"),
                      "phone_agrees": ver.count("phone_agrees"), "phone_walking": ver.count("phone_walking"),
                      "total": len(ver)},
     }
+
+
+def android_summary(rec, now=None):
+    """Latest Android reading in plain words, or None when the app has not sent in the last minute."""
+    now = time.time() if now is None else now
+    if not rec or now - rec.get("t", 0) > 60:
+        return None
+    out = {k: rec.get(k) for k in ("motion", "cadence", "steps_10s", "steps_session", "turning", "turn_deg",
+                                   "freeze_index", "freeze_suspect", "stairs", "in_pocket", "battery",
+                                   "charging", "device", "hz") if rec.get(k) is not None}
+    out["sensors"] = len(rec.get("sensors") or [])
+    out["ago"] = ago(rec["t"], now)
+    return out

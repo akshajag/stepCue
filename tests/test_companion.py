@@ -39,6 +39,37 @@ class Updates(unittest.TestCase):
             cs.add_phone(d, "running")
 
 
+class Android(unittest.TestCase):
+    BODY = {"motion": "walking", "cadence": 104, "acc_rms": 2.1, "freeze_index": 0.4, "freeze_suspect": False,
+            "turning": True, "turn_deg": 62, "stairs": "up", "battery": 81, "charging": False,
+            "sensors": ["gyroscope", "barometer"], "device": "Pixel 8", "lat": 37.7, "lon": -122.4,
+            "evil": "x" * 9999, "hz": float("inf")}
+
+    def test_add_android_whitelists_and_feeds_phone(self):
+        d = cs.empty()
+        rec = cs.add_android(d, self.BODY, now=NOW)
+        self.assertEqual((rec["cadence"], rec["stairs"], rec["sensors"]), (104, "up", ["gyroscope", "barometer"]))
+        for k in ("evil", "lat", "lon", "hz"):
+            self.assertNotIn(k, rec)                      # unknown fields, location and inf dropped
+        self.assertEqual(d["phone"]["motion"], "walking")
+        self.assertEqual(d["android_series"][-1][1:], ["walking", 104, 0.4, False, True])
+        with self.assertRaises(ValueError):
+            cs.add_android(d, {"motion": "teleporting"})
+
+    def test_android_summary_and_freeze_vote(self):
+        d = cs.empty()
+        cs.add_android(d, dict(self.BODY, motion="moving", freeze_suspect=True, cadence=0), now=NOW - 2)
+        summ = cs.companion_summary(d, [ep(1, NOW - 4)], now=NOW)
+        self.assertTrue(summ["android"]["freeze_suspect"])
+        self.assertEqual(summ["android"]["sensors"], 2)
+        self.assertEqual(summ["verified"]["phone_agrees"], 1)
+        self.assertIsNone(cs.android_summary(d["android"], now=NOW + 120))   # stale after a minute
+
+    def test_android_url_keeps_key_in_hash(self):
+        url = cs.android_url("192.168.4.2", 8080, "k123")
+        self.assertEqual(url, "http://192.168.4.2:8080/android#key=k123")
+
+
 class Health(unittest.TestCase):
     def test_health_auto_export_format(self):
         payload = {"data": {"metrics": [

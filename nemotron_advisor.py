@@ -214,7 +214,8 @@ def phone_and_watch(episodes):
             "walking_feels": wf.get("value") if isinstance(wf, dict) else wf,
             "heart_rate_bpm": hr.get("bpm") if isinstance(hr, dict) else hr,
             "steps_today": steps.get("count") if isinstance(steps, dict) else steps,
-            "freeze_verification": summ.get("verified")}
+            "freeze_verification": summ.get("verified"),
+            "android_phone": summ.get("android")}           # live gait features from the Android app
 
 
 def run_read_tool(name, args, state):

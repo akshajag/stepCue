@@ -66,7 +66,7 @@ hackathon. Judging: Technicality, Ingenuity, Diversity, Applicability, Looks. Ta
   `st.segmented_control`, `st.pills`, `width="stretch"`).
 - Streamlit caches imported modules: **restart the Streamlit server** after editing
   `auth_ui.py`, `nvidia_ui.py` or other imported modules.
-- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **116 tests, all
+- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **121 tests, all
   passing**. pytest is not installed.
 - Repo: https://github.com/akshajag/stepCue (public), branch `main`.
 
@@ -125,6 +125,24 @@ to skip the setup redirect.
   - Apple Watch
 - Help requests trigger `alert_notifier.py` (one push plus a call per new help tap; dry run
   without keys).
+
+### Android app (`android/`, replaces the shelved Apple Watch route)
+- Plain Java, no Gradle. Build: `.venv/Scripts/python android/build.py` (SDK in
+  `%LOCALAPPDATA%/StepCueAndroidSdk`, JDK 25) writes `companion/stepcue.apk`. The signing key
+  `android/stepcue.jks` is local and gitignored; a different key means uninstalling first.
+- Install flow: dashboard QR -> `http://<laptop-ip>:8080/android#key=...` (`companion/android.html`,
+  served without a key along with `/stepcue.apk`) -> Download, Install -> "Open StepCue and connect"
+  (`intent://pair?h=&p=&k=`) -> Start -> Allow. Buttons only.
+- `SensorService` (foreground service, health|location, wake lock) reads accelerometer, linear accel,
+  gravity, gyroscope, rotation, compass, barometer, light, proximity, step detector/counter, GPS and
+  battery at 50 Hz; `Features.java` computes cadence, Moore freeze index, turns, stairs, in-pocket.
+  Every 2 s it POSTs `/api/android`; every 1.5 s it reads `/api/status` and during FREEZE vibrates at
+  the cue bpm and speaks one cue (Android TTS).
+- Laptop: `companion_store.add_android` (whitelisted fields, location goes to location.json only),
+  `android_summary`, and an Android freeze suspect counts as "phone agrees" in verification. Shown in
+  the dashboard's phone cell and passed to the Nemotron `get_phone_and_watch` tool.
+- Gait math test: `javac -d out android/src/com/stepcue/companion/Features.java android/test/FeaturesTest.java && java -cp out FeaturesTest`.
+- Not tested on a real Android phone yet.
 
 ### NVIDIA stack (for Best Use of Nemotron)
 All of it goes through `nvidia_nim.py`: the `MODELS` registry (each model can be overridden

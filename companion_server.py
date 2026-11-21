@@ -42,6 +42,8 @@ CERT_DIR = "certs"
 MAX_BODY = 512 * 1024
 LOCK = threading.Lock()
 HTTP_PORT = 8080                 # set from --http-port in main()
+# served on both ports without the pairing key: the Android install page and the app itself
+PUBLIC_FILES = {"/android": "android.html", "/stepcue.apk": "stepcue.apk", "/icon.png": "icon.png"}
 STATUS_WORD = {"WALKING": "Walking", "STATIONARY": "Standing", "FREEZE": "Freeze detected", "OFFLINE": "No signal"}
 
 
@@ -204,6 +206,16 @@ def handle_api(path, body, now=None):
                     if placed:
                         write_json(LOCATION_FILE, loc)
                 return 200, {"ok": True, "location": placed}
+            if path == "/api/android":
+                cs.add_android(comp, body, now=now)
+                cs.write_companion(comp)
+                placed = False
+                if body.get("lat") is not None and body.get("lon") is not None:
+                    loc = read_location()
+                    placed = add_fix(loc, body["lat"], body["lon"], t=now, acc=body.get("acc_m"), source="android")
+                    if placed:
+                        write_json(LOCATION_FILE, loc)
+                return 200, {"ok": True, "location": placed}
             if path == "/api/health":
                 parsed = cs.parse_health(body, now=now)
                 src = "SensorLog" if any(str(k).startswith(("locationLatitude", "motion", "logging"))
@@ -248,6 +260,8 @@ def make_handler(key, serve_page):
         def _route(self, method):
             u = urllib.parse.urlsplit(self.path)
             query = urllib.parse.parse_qs(u.query)
+            if method == "GET" and u.path in PUBLIC_FILES:     # Android install page + app, no key
+                return self._static("/" + PUBLIC_FILES[u.path])
             if not u.path.startswith("/api/"):
                 if method == "GET" and serve_page:
                     return self._static(u.path)
@@ -278,6 +292,8 @@ def make_handler(key, serve_page):
             ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
             if full.endswith(".webmanifest"):
                 ctype = "application/manifest+json"
+            elif full.endswith(".apk"):
+                ctype = "application/vnd.android.package-archive"
             self._send(200, raw=data, ctype=ctype)
 
         def do_GET(self):
@@ -314,6 +330,7 @@ def main():
     log(f"phone page: https://{ip}:{a.port}  (scan the QR code on the dashboard's Access page)")
     if a.http_port:
         log(f"watch data: http://{ip}:{a.http_port}/api/health  (header X-StepCue-Key)")
+        log(f"Android app: http://{ip}:{a.http_port}/android  (scan the Android QR code on the dashboard)")
     try:
         httpsd.serve_forever()
     except KeyboardInterrupt:

@@ -716,7 +716,17 @@ def companion_cells(summary, with_phone=True):
                   f'<span class="v">{hr["bpm"]}<small> bpm</small></span>' if hr
                   else '<span class="v"><small>No watch data</small></span>',
                   f'{hr["ago"]}, {hr["source"]}' if hr else ""))
-    if with_phone:
+    an = summary.get("android")
+    if with_phone and an:
+        bits = [f'{int(an["cadence"])} steps/min' if an.get("cadence") else None,
+                "turning" if an.get("turning") else None,
+                f'stairs {an["stairs"]}' if an.get("stairs") in ("up", "down") else None,
+                f'battery {int(an["battery"])}%' if an.get("battery") is not None else None]
+        word = "Felt a freeze" if an.get("freeze_suspect") else an["motion"].capitalize()
+        cells.append(("phone", "Android phone",
+                      f'<span class="v{" help" if an.get("freeze_suspect") else ""}">{esc(word)}</span>',
+                      ", ".join([an["ago"]] + [b for b in bits if b]) + f' · {an.get("sensors", 0)} sensors'))
+    elif with_phone:
         cells.append(("phone", "Phone motion",
                       f'<span class="v">{esc(ph["motion"].capitalize())}</span>' if ph
                       else '<span class="v"><small>Not sharing</small></span>',
@@ -1031,7 +1041,17 @@ def access_page():
                         st.rerun()
     with right:
         with st.container(border=True):
-            st.markdown('<div class="sc-h">Pair the wearer&#39;s phone</div><div class="sc-sub">Run '
+            st.markdown('<div class="sc-h">Android phone (recommended)</div><div class="sc-sub">Scan with the '
+                        'Android phone&#39;s camera (same Wi-Fi as this laptop). The page installs the StepCue app '
+                        'and connects it in one tap. The app then streams gait features from the gyroscope, '
+                        'accelerometer, barometer, step sensors and GPS, and buzzes the walking beat during a '
+                        'freeze.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="sc-qr">{auth.qr_svg(cs.android_url())}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sc-sub" style="margin-top:6px">First install: Android asks to allow installs '
+                        'from Chrome once. Rebuild the app with <code>python android/build.py</code>.</div>',
+                        unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown('<div class="sc-h">iPhone (web page)</div><div class="sc-sub">Run '
                         'companion_server.py, then scan this with the iPhone camera (same Wi-Fi as this laptop). '
                         'A step-by-step setup opens on the phone: connection check, Apple Watch, Home Screen. '
                         'Large text, one step per screen, with notes for a helper.</div>', unsafe_allow_html=True)
@@ -1143,9 +1163,12 @@ def patient_view():
                 f'<span>{"light and wrist buzz" if state.get("haptic") else "ankle light"}</span></div>'
                 '</div>', unsafe_allow_html=True)
         with st.container(border=True):
-            st.markdown('<div class="sc-h">StepCue on your phone</div><div class="sc-sub">Scan with your phone&#39;s '
-                        'camera. It sets itself up, then you can use these buttons from your phone too.</div>'
-                        f'<div class="sc-qr">{auth.qr_svg(cs.companion_url())}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sc-h">StepCue on your phone</div><div class="sc-sub">Android: scan with the '
+                        'phone&#39;s camera, tap Download, Install, then Open StepCue. The app uses the phone&#39;s '
+                        'motion sensors to help when you freeze.</div>'
+                        f'<div class="sc-qr">{auth.qr_svg(cs.android_url())}</div>', unsafe_allow_html=True)
+            with st.expander("Using an iPhone?"):
+                st.markdown(f'<div class="sc-qr">{auth.qr_svg(cs.companion_url())}</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sc-foot">StepCue helps you start walking again with light and vibration cues and keeps '
                 'your family and care team informed. It does not diagnose or give medical advice.</div>',

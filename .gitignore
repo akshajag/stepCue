@@ -29,3 +29,9 @@ translations.json.tmp
 care_report.json
 care_report.json.tmp
 nemoclaw/snapshot/
+
+# Android build outputs and local signing key
+android/build/
+android/*.jks
+android_pair_qr.png
+companion/*.idsig

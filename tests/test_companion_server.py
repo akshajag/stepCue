@@ -47,6 +47,16 @@ class Api(unittest.TestCase):
         self.assertEqual(comp["watch"]["heart_rate"]["bpm"], 72)
         self.assertEqual(location_io.read_json(self.loc, {})["fix"]["source"], "companion")
 
+    def test_android_features_and_location(self):
+        code, out = srv.handle_api("/api/android", {"motion": "walking", "cadence": 98, "lat": 37.7712,
+                                                    "lon": -122.4413, "acc_m": 9, "sensors": ["gyroscope"]})
+        self.assertEqual((code, out["location"]), (200, True))
+        comp = cs.read_companion()
+        self.assertEqual(comp["android"]["cadence"], 98)
+        self.assertNotIn("lat", comp["android"])
+        self.assertEqual(location_io.read_json(self.loc, {})["fix"]["source"], "android")
+        self.assertEqual(srv.handle_api("/api/android", {"motion": "x"})[0], 400)
+
     def test_bad_input_is_400(self):
         self.assertEqual(srv.handle_api("/api/checkin", {"kind": "diagnose"})[0], 400)
         self.assertEqual(srv.handle_api("/api/confirm", {})[0], 400)
@@ -122,6 +132,16 @@ class Http(unittest.TestCase):
         self.assertEqual(code, 200)
         code, data = self.req("/api/status")
         self.assertEqual(json.loads(data)["watch"]["bpm"], 74)
+
+    def test_android_install_page_and_apk_public(self):
+        code, data = self.req("/android", key=None)
+        self.assertEqual(code, 200)
+        self.assertIn(b"Open StepCue and connect", data)
+        if os.path.isfile(os.path.join(srv.STATIC_DIR, "stepcue.apk")):
+            with urllib.request.urlopen(self.base + "/stepcue.apk", context=self.client, timeout=5) as r:
+                self.assertEqual(r.headers["Content-Type"], "application/vnd.android.package-archive")
+                self.assertEqual(r.read(2), b"PK")
+        self.assertEqual(self.req("/api/android", {"motion": "still"}, key=None)[0], 401)
 
     def test_key_in_query_for_watch_apps(self):
         code, _ = self.req(f"/api/health?key={KEY}", {"heartRate": 80}, key=None)
