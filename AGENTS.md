@@ -107,8 +107,10 @@ to skip the setup redirect.
     authenticator, pairing QR).
 - `STEPCUE_AUTH=off` bypasses sign-in for development only.
 - Demo admin: email `1`, password `1` (`auth.check_admin`). Not in users.json, skips the authenticator,
-  and gets a sidebar switch between the Care team, Family and Patient dashboards. Only accepted from
-  the laptop itself (localhost) unless `STEPCUE_ADMIN_ANYWHERE=1`; `STEPCUE_DEMO_ADMIN=off` disables it.
+  and gets a sidebar switch between the Care team, Family and Patient dashboards. Works on any computer
+  running the repo, from any device, including a fresh clone with no users.json (the first-run screen
+  has a demo sign-in box). `STEPCUE_ADMIN_LOCAL_ONLY=1` limits it to the host; `STEPCUE_DEMO_ADMIN=off`
+  disables it.
 
 ### Phone companion (`companion_server.py`, `companion_store.py`, `companion/`)
 - Pairing key in `companion_key.txt`, carried in the URL hash `#key=` (never sent to the

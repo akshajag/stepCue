@@ -82,6 +82,19 @@ def _first_run():
                 st.rerun()
             except ValueError as exc:
                 st.error(str(exc).capitalize())
+    if auth.admin_enabled():
+        with mid:
+            st.markdown('<div style="text-align:center;color:var(--muted);margin:14px 0 6px">or use the demo login</div>',
+                        unsafe_allow_html=True)
+            with st.form("first_run_admin"):
+                email = st.text_input("Email", key="fr_admin_email")
+                pw = st.text_input("Password", type="password", key="fr_admin_pw")
+                if st.form_submit_button("Sign in", width="stretch"):
+                    admin = auth.check_admin(email, pw)
+                    if admin and admin_allowed_here():
+                        st.session_state["auth_user"] = dict(admin, at=time.time())
+                        st.rerun()
+                    st.error("Email or password is not right.")
     st.stop()
 
 
@@ -111,7 +124,7 @@ def _step_one():
                 admin = auth.check_admin(email, pw)
                 if admin:
                     if not admin_allowed_here():
-                        st.error("The demo admin login only works on the StepCue laptop itself.")
+                        st.error("The demo admin login is limited to the computer running StepCue.")
                     else:
                         st.session_state["auth_user"] = dict(admin, at=time.time())
                         st.rerun()
@@ -167,8 +180,8 @@ def _step_two(email):
 
 
 def admin_allowed_here():
-    """The demo admin skips two-step sign-in, so by default it only works from this laptop."""
-    if os.environ.get("STEPCUE_ADMIN_ANYWHERE", "").lower() in ("1", "on", "true", "yes"):
+    """The demo admin works from any device unless STEPCUE_ADMIN_LOCAL_ONLY=1 limits it to the host."""
+    if os.environ.get("STEPCUE_ADMIN_LOCAL_ONLY", "").lower() not in ("1", "on", "true", "yes"):
         return True
     try:
         ip = st.context.ip_address

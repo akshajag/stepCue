@@ -58,9 +58,10 @@ def norm_email(email):
 
 
 # ------------------------------------------------------------ demo admin --
-# A quick demo login (email 1, password 1) that can open all three dashboards. It is not stored in
-# users.json and skips the authenticator step, so auth_ui only accepts it from this laptop
-# (localhost) unless STEPCUE_ADMIN_ANYWHERE=1. Turn it off with STEPCUE_DEMO_ADMIN=off.
+# A quick demo login (email 1, password 1) that can open all three dashboards on any computer that
+# runs StepCue, even a fresh clone with no accounts yet. It is not stored in users.json and skips the
+# authenticator step. Turn it off with STEPCUE_DEMO_ADMIN=off before real use, or limit it to the
+# hosting computer itself with STEPCUE_ADMIN_LOCAL_ONLY=1.
 ADMIN_EMAIL = "1"
 ADMIN_PASSWORD = "1"
 ADMIN_NAME = "1"
