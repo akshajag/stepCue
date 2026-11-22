@@ -1047,6 +1047,8 @@ def access_page():
                         auth.save_users(data)
                         st.rerun()
     with right:
+        import alerts_ui
+        alerts_ui.alert_card()
         with st.container(border=True):
             st.markdown('<div class="sc-h">Android phone (recommended)</div><div class="sc-sub">Scan with the '
                         'Android phone&#39;s camera (same Wi-Fi as this laptop). The page installs the StepCue app '
@@ -1057,6 +1059,12 @@ def access_page():
             st.markdown('<div class="sc-sub" style="margin-top:6px">First install: Android asks to allow installs '
                         'from Chrome once. Rebuild the app with <code>python android/build.py</code>.</div>',
                         unsafe_allow_html=True)
+            st.markdown(f'<div class="sc-sub" style="margin-top:6px"><b>Any laptop can host StepCue.</b> Each computer '
+                        f'running StepCue shows its own code here (this one is <b>{html.escape(cs.laptop_name())}</b>, '
+                        f'{html.escape(cs.lan_ip())}). Scan it with a phone that already has the app and tap '
+                        '<b>Connect</b>: the phone remembers every laptop and finds them again when their address '
+                        'changes. On a new Windows laptop, allow Python on <b>private networks</b> when the '
+                        'firewall asks, or the phone can&#39;t reach it.</div>', unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown('<div class="sc-h">iPhone (web page)</div><div class="sc-sub">Run '
                         'companion_server.py, then scan this with the iPhone camera (same Wi-Fi as this laptop). '

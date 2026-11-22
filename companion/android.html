@@ -44,6 +44,12 @@ ol {margin:0 0 4px; padding-left:1.2em;} li {margin-bottom:6px;}
   <div class="warn" id="noKey" hidden>This page needs the code from the laptop. Scan the Android QR code on the StepCue laptop again.</div>
   <div class="warn" id="notAndroid" hidden>Open this page on an Android phone. (iPhone? Use the iPhone QR code on the laptop.)</div>
 
+  <section class="step" id="s0">
+    <h2>Already have StepCue?</h2>
+    <a class="btn" id="open0" href="#">Connect to <span id="lname">this laptop</span></a>
+    <p class="small" style="margin-top:12px">The app remembers every laptop it has connected to. New phone? Start at step 1.</p>
+  </section>
+
   <section class="step" id="s1">
     <h2><span class="n">1</span>Get the app</h2>
     <a class="btn" id="dl" href="/stepcue.apk" download="StepCue.apk">Download StepCue</a>
@@ -76,14 +82,19 @@ ol {margin:0 0 4px; padding-left:1.2em;} li {margin-bottom:6px;}
   var host = location.hostname, port = location.port || "80";
   if (!key) document.getElementById("noKey").hidden = false;
   if (!/Android/i.test(navigator.userAgent)) document.getElementById("notAndroid").hidden = false;
-  var q = "pair?h=" + encodeURIComponent(host) + "&p=" + encodeURIComponent(port) + "&k=" + encodeURIComponent(key);
+  var name = (new URLSearchParams(location.search).get("n") || "").replace(/[^A-Za-z0-9 ._'\-]/g, "").slice(0, 40);
+  if (name) document.getElementById("lname").textContent = name;
+  var q = "pair?h=" + encodeURIComponent(host) + "&p=" + encodeURIComponent(port) + "&k=" + encodeURIComponent(key)
+        + (name ? "&n=" + encodeURIComponent(name) : "");
   // intent:// makes Chrome open the app directly; plain stepcue:// is the fallback for other browsers
-  document.getElementById("open").href = "intent://" + q + "#Intent;scheme=stepcue;package=com.stepcue.companion;end";
+  var intent = "intent://" + q + "#Intent;scheme=stepcue;package=com.stepcue.companion;end";
+  document.getElementById("open").href = intent;
+  document.getElementById("open0").href = intent;
   document.getElementById("open2").href = "stepcue://" + q;
   document.getElementById("dl").addEventListener("click", function () {
     document.getElementById("s1").classList.add("done");
   });
-  ["open", "open2"].forEach(function (id) {
+  ["open0", "open", "open2"].forEach(function (id) {
     document.getElementById(id).addEventListener("click", function (e) {
       if (!key) { e.preventDefault(); return; }
       document.getElementById("s3").classList.add("done");

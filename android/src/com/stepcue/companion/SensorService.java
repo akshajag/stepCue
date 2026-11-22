@@ -112,6 +112,7 @@ public class SensorService extends Service implements SensorEventListener, Locat
             wake.acquire();
             registerSensors();
             startLocation();
+            Beacon.acquire(this);           // follow the laptop if its address changes
             h.postDelayed(sendLoop, SEND_MS);
             h.postDelayed(statusLoop, 500);
         }
@@ -391,6 +392,7 @@ public class SensorService extends Service implements SensorEventListener, Locat
                 }
                 cueStatus = st;
                 cueBpm = bpm;
+                Alerts.onStatus(SensorService.this, s, st);      // call the caretaker if needed
             } catch (Exception ignored) { }
             if (running) h.postDelayed(this, STATUS_MS);
         }
@@ -415,6 +417,7 @@ public class SensorService extends Service implements SensorEventListener, Locat
 
     @Override
     public void onDestroy() {
+        if (running) Beacon.release();
         running = false;
         h.removeCallbacksAndMessages(null);
         try { sm.unregisterListener(this); } catch (Exception ignored) { }

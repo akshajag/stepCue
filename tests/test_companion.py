@@ -88,7 +88,16 @@ class Android(unittest.TestCase):
 
     def test_android_url_keeps_key_in_hash(self):
         url = cs.android_url("192.168.4.2", 8080, "k123")
-        self.assertEqual(url, "http://192.168.4.2:8080/android#key=k123")
+        self.assertTrue(url.startswith("http://192.168.4.2:8080/android?n="))
+        self.assertTrue(url.endswith("#key=k123"))
+        self.assertNotIn("k123", url.split("#")[0])               # the key never reaches the server
+
+    def test_beacon_carries_hash_not_key(self):
+        import json
+        msg = json.loads(cs.beacon_message(8080, "secret-key-123"))
+        self.assertEqual((msg["stepcue"], msg["port"], len(msg["id"])), (1, 8080, 16))
+        self.assertNotIn("secret-key-123", json.dumps(msg))
+        self.assertEqual(msg["id"], cs.laptop_id("secret-key-123"))
 
 
 class Health(unittest.TestCase):

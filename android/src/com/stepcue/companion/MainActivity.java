@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -47,7 +48,9 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private LinearLayout root;
-    private TextView statusBig, statusSub, msg, senseText, freezeQ, pairText;
+    private TextView statusBig, statusSub, msg, senseText, freezeQ, pairText, laptopText;
+    private LinearLayout laptopCard, laptopList;
+    private String laptopsKey = "";
     private LinearLayout statusCard, freezeCard, pairCard, helpCard, feelCard, senseCard;
     private Button startBtn, okBtn, helpBtn, buzzBtn, stopBtn;
     private boolean helpArmed = false;
@@ -79,8 +82,8 @@ public class MainActivity extends Activity {
         handlePair(i);
     }
 
-    @Override protected void onResume() { super.onResume(); visible = true; tick.run(); }
-    @Override protected void onPause() { super.onPause(); visible = false; ui.removeCallbacks(tick); }
+    @Override protected void onResume() { super.onResume(); visible = true; Beacon.acquire(this); tick.run(); }
+    @Override protected void onPause() { super.onPause(); visible = false; Beacon.release(); ui.removeCallbacks(tick); }
 
     // ------------------------------------------------------------- pairing --
     private void handlePair(Intent i) {
@@ -90,8 +93,12 @@ public class MainActivity extends Activity {
             if (h != null && k != null && h.matches("[A-Za-z0-9.\\-]{1,253}") && k.matches("[A-Za-z0-9_\\-]{8,128}")) {
                 int port = 8080;
                 try { if (p != null) port = Integer.parseInt(p); } catch (NumberFormatException ignored) { }
-                Net.prefs(this).edit().putString("host", h).putInt("port", port).putString("key", k).apply();
-                say("Connected to your StepCue laptop. Tap Start.", TEAL);
+                String n = u.getQueryParameter("n");
+                String name = n == null ? "" : n.replaceAll("[^A-Za-z0-9 ._'\\-]", "").trim();
+                if (name.length() > 40) name = name.substring(0, 40);
+                Net.saveLaptop(this, h, port, k, name);
+                say("Connected to " + (name.isEmpty() ? "your StepCue laptop" : name)
+                        + (SensorService.running ? "." : ". Tap Start."), TEAL);
             } else {
                 say("That link didn't look right. Scan the code on the laptop again.", RED);
             }
@@ -111,8 +118,15 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) want.add(Manifest.permission.POST_NOTIFICATIONS);
         List<String> missing = new ArrayList<>();
         for (String p : want) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) missing.add(p);
-        if (!missing.isEmpty() && !Net.prefs(this).getBoolean("asked", false)) {
-            Net.prefs(this).edit().putBoolean("asked", true).apply();
+        // calls to the caretaker: asked once, also on phones set up before this was added
+        List<String> alertMissing = new ArrayList<>();
+        for (String p : Alerts.PERMISSIONS) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) alertMissing.add(p);
+        SharedPreferences ap = Net.prefs(this);
+        boolean askMain = !missing.isEmpty() && !ap.getBoolean("asked", false);
+        boolean askAlerts = !alertMissing.isEmpty() && !ap.getBoolean("askedAlerts", false);
+        if (askMain || askAlerts) {
+            ap.edit().putBoolean("asked", true).putBoolean("askedAlerts", true).apply();
+            missing.addAll(alertMissing);
             requestPermissions(missing.toArray(new String[0]), 1);
             return;
         }
@@ -247,6 +261,7 @@ public class MainActivity extends Activity {
         pairText = text("On the StepCue laptop, open the Android QR code. Point this phone's camera at it and tap the link.\n\nThen tap \"Open StepCue\" on the page that opens.", 19, INK, false);
         pairText.setPadding(0, dp(8), 0, 0);
         pairCard.addView(pairText);
+        pairCard.addView(button("Open camera", TEAL, Color.WHITE, v -> openCamera()));
 
         // status
         statusCard = card();
@@ -255,6 +270,9 @@ public class MainActivity extends Activity {
         statusSub.setPadding(0, dp(4), 0, 0);
         statusCard.addView(statusBig);
         statusCard.addView(statusSub);
+        laptopText = text("", 17, MUTED, false);
+        laptopText.setPadding(0, dp(6), 0, 0);
+        statusCard.addView(laptopText);
         phaseText = text("", 18, TEAL, true);
         phaseText.setPadding(0, dp(6), 0, 0);
         phaseText.setVisibility(View.GONE);
@@ -338,6 +356,20 @@ public class MainActivity extends Activity {
         senseText.setPadding(0, dp(6), 0, 0);
         senseCard.addView(senseText);
 
+        // another laptop: any computer running StepCue shows its own QR code
+        laptopCard = card();
+        laptopCard.addView(text("Connect to another laptop", 22, INK, true));
+        TextView steps = text("1. On the other laptop, start StepCue and open the Android QR code.\n"
+                + "2. Tap Open camera and point it at the code.\n"
+                + "3. Tap the link, then tap \"Connect\".\n"
+                + "The phone remembers every laptop and finds them again by itself.", 18, MUTED, false);
+        steps.setPadding(0, dp(6), 0, 0);
+        laptopCard.addView(steps);
+        laptopCard.addView(button("Open camera", TEAL_BG, TEAL, v -> openCamera()));
+        laptopList = new LinearLayout(this);
+        laptopList.setOrientation(LinearLayout.VERTICAL);
+        laptopCard.addView(laptopList);
+
         stopBtn = button("Stop sharing", BG, MUTED, v -> stopService());
         stopBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         stopBtn.setBackground(round(BG, LINE));
@@ -347,6 +379,43 @@ public class MainActivity extends Activity {
         foot.setPadding(0, dp(18), 0, 0);
         foot.setGravity(Gravity.CENTER_HORIZONTAL);
         root.addView(foot);
+    }
+
+    private void openCamera() {
+        try {
+            startActivity(new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA));
+        } catch (Exception e) {
+            say("Open the camera app and point it at the QR code on the laptop.", INK);
+        }
+    }
+
+    private void renderLaptops() {
+        JSONArray a = Net.laptops(this);
+        String active = Net.activeId(this);
+        String key = a.toString() + active;
+        if (key.equals(laptopsKey)) return;
+        laptopsKey = key;
+        laptopList.removeAllViews();
+        if (a.length() < 2) return;                 // switch buttons only when there is a choice
+        TextView head = text("Saved laptops", 19, INK, true);
+        head.setPadding(0, dp(14), 0, 0);
+        laptopList.addView(head);
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null) continue;
+            final String id = o.optString("id");
+            boolean on = id.equals(active);
+            String label = (on ? "✓ " : "Use ") + o.optString("name", "StepCue laptop");
+            Button b = button(label, on ? TEAL_BG : BG, on ? TEAL : INK, v -> {
+                if (id.equals(Net.activeId(this))) return;
+                Net.activate(this, id);
+                say("Switched to " + Net.activeName(this) + ".", TEAL);
+                render();
+            });
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+            if (!on) b.setBackground(round(BG, LINE));
+            laptopList.addView(b);
+        }
     }
 
     private void say(String s, int color) {
@@ -386,7 +455,10 @@ public class MainActivity extends Activity {
             return;
         }
         disarm.run();
-        checkin("help", null, "Help is on the way. Your care team has been told.");
+        boolean texting = Alerts.ready(this);   // a caretaker number is saved
+        if (texting) Alerts.fire(this, "help");           // straight from this phone, even without the laptop
+        checkin("help", null, texting ? "Help is on the way. Calling your caretaker now."
+                : "Help is on the way. Your care team has been told.");
     }
 
     private final Runnable disarm = () -> {
@@ -466,7 +538,7 @@ public class MainActivity extends Activity {
         boolean paired = Net.paired(this);
         boolean on = SensorService.running;
         pairCard.setVisibility(paired ? View.GONE : View.VISIBLE);
-        for (View v : new View[]{statusCard, helpCard, feelCard, senseCard, trainToggle})
+        for (View v : new View[]{statusCard, helpCard, feelCard, senseCard, trainToggle, laptopCard})
             v.setVisibility(paired ? View.VISIBLE : View.GONE);
         trainCard.setVisibility(paired && trainOpen ? View.VISIBLE : View.GONE);
         trainToggle.setText(trainOpen ? "Close training" : "Teach StepCue (training)");
@@ -477,6 +549,10 @@ public class MainActivity extends Activity {
         buzzBtn.setBackground(round(buzz ? TEAL_BG : GREY_BG, 0));
         buzzBtn.setTextColor(buzz ? TEAL : INK);
         if (!paired) { freezeCard.setVisibility(View.GONE); return; }
+        renderLaptops();
+        String lname = Net.activeName(this);
+        laptopText.setText("Laptop: " + (lname.isEmpty() ? "StepCue laptop" : lname)
+                + " (" + Net.prefs(this).getString("host", "") + ")");
 
         JSONObject st = SensorService.lastStatus;
         String err = SensorService.lastError;
@@ -490,7 +566,8 @@ public class MainActivity extends Activity {
             sub = "The laptop has a new code. Scan the Android QR code on the laptop again.";
         } else if (!linkOk) {
             big = "Can't reach the laptop"; fg = AMBER; bg = AMBER_BG;
-            sub = "Check that this phone is on the same Wi-Fi as the StepCue laptop.";
+            sub = "Check that this phone is on the same Wi-Fi as the StepCue laptop. "
+                    + "Using a different laptop? Scan its code below.";
         } else if ("FREEZE".equals(status)) {
             big = "Freeze detected"; fg = RED; bg = RED_BG;
             sub = buzz ? "Step with the beat. Big steps." : "Take a breath. Big steps.";
@@ -507,6 +584,8 @@ public class MainActivity extends Activity {
             long ago = SensorService.lastOkMs == 0 ? -1 : (System.currentTimeMillis() - SensorService.lastOkMs) / 1000;
             sub += ago < 0 ? "\nPhone sensors: starting…" : ago < 10 ? "\nPhone sensors: sharing" : "\nPhone sensors: last shared " + ago + " s ago";
         }
+        String alertWords = Alerts.lastResult;
+        if (alertWords != null && System.currentTimeMillis() - Alerts.lastResultMs < 180000) sub += "\n" + alertWords;
         statusBig.setText(big);
         statusBig.setTextColor(fg);
         statusSub.setText(sub);

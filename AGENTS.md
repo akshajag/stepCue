@@ -66,7 +66,7 @@ hackathon. Judging: Technicality, Ingenuity, Diversity, Applicability, Looks. Ta
   `st.segmented_control`, `st.pills`, `width="stretch"`).
 - Streamlit caches imported modules: **restart the Streamlit server** after editing
   `auth_ui.py`, `nvidia_ui.py` or other imported modules.
-- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **131 tests, all
+- Tests: `.venv/Scripts/python -m unittest discover -s tests -q` gives **141 tests, all
   passing**. pytest is not installed.
 - Repo: https://github.com/akshajag/stepCue (public), branch `main`.
 
@@ -76,6 +76,7 @@ hackathon. Judging: Technicality, Ingenuity, Diversity, Applicability, Looks. Ta
 | 5005 / 5006 | sensor in / cues out (locked) |
 | 5007 | simulator control: `MODE:WALK`, `MODE:STAND`, `MODE:FREEZE` (sim only) |
 | 5010 | location server (OwnTracks in, or `--simulate`) |
+| 5011 | laptop beacon (UDP broadcast every 2 s from `companion_server.py`: key hash, port, hostname; never the key) |
 | 8443 | phone page, HTTPS with a self-signed cert in `certs/` |
 | 8080 | plain HTTP watch-data intake (`/api/health`) |
 | 8501 | dashboard with real sign-in |
@@ -148,12 +149,33 @@ to skip the setup redirect.
   the dashboard's phone cell and passed to the Nemotron `get_phone_and_watch` tool.
 - Gait math test: `javac -d out android/src/com/stepcue/companion/Features.java android/test/FeaturesTest.java && java -cp out FeaturesTest`.
 - Verified live with a Google Pixel 9 (12 sensors at 50 Hz).
+- Any laptop can host it: each laptop running the repo serves its own QR (`cs.android_url()` adds
+  `?n=<hostname>`, passed on as `&n=` in the pairing link). The app (v1.2) keeps a list of saved laptops
+  (`Net.laptops`, up to 8; id = `sha256("stepcue:"+key)[:16]`, same as `cs.laptop_id`). `Beacon.java`
+  listens on UDP 5011 (with a Wi-Fi MulticastLock): a beacon from a saved laptop updates its address, and
+  switches to it when the active laptop hasn't answered for 10 s. The app has a "Connect to another laptop"
+  card (Open camera button, saved-laptop switch buttons). A new Windows laptop must allow Python on
+  private networks. Beacon discovery and switching are not yet tested on a real phone.
 - **Activity page** (`phone_ui.py`, care team and family): 3 SVG gauges (walking pace, freeze score,
   phone battery), 8 tiles, a per-minute pace + freeze-score chart (last 3 h) and a 7-day steps bar
   chart with a goal line (`STEPCUE_STEP_GOAL`, default 5000). History comes from
   `companion_store.android_days` / `android_minutes` (per-day totals and per-minute rows rolled up
   in `add_android`). Days without data show "no data", never 0. No clinical vitals (blood pressure,
   glucose, etc.): StepCue has no sensor for them, so they are not shown.
+
+### Free caretaker calls (`Alerts.java`, `alerts_ui.py`)
+- The wearer's Android phone calls the caretaker over its own plan (CALL_PHONE, asked once with the
+  other permissions via the `askedAlerts` pref so older installs are asked too). Texting was tried and
+  removed at the user's request: Android 13+ blocks SEND_SMS for sideloaded apps ("restricted setting").
+- Number set on Care team -> Access ("Calls from the phone"), stored in companion.json `prefs.alert`
+  (`cs.set_alert_contact`, `clean_phone`). `/api/status` carries `alerts` (`cs.alert_payload`: phone,
+  freeze_sec, freeze_for, freeze_id, help_t, test_id, cooldown). The phone caches the number, so a help
+  tap calls even when the laptop is unreachable.
+- Triggers: the phone's own help tap; a help tap from elsewhere (help_t); a freeze over
+  `STEPCUE_ALERT_FREEZE_SEC` (default 30) once per episode; "Test call" on the dashboard.
+  Cooldown 5 min per kind. The phone reports to `/api/alertlog` (`alerts_log`, shown on the card).
+- Verified 2026-11-21: the patient's Pixel 9 called the caretaker's phone and it rang (help trigger).
+  App is v1.4 (versionCode 5). Not yet verified: the long-freeze trigger and calling with the screen off.
 
 ### Per-patient training (`personal_model.py`, `training_ui.py`)
 - Labels: sitting, standing, walking, frozen. A helper taps the label on the dashboard's **Training**

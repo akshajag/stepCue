@@ -111,6 +111,7 @@ def status_payload(now=None):
             "cue": {"bpm": int(state.get("bpm") or 100), "haptic": int(state.get("haptic") or 0)},
             "voice": voice_info(comp),
             "training": pm.phone_status(now),
+            "alerts": cs.alert_payload(comp, state.get("episodes", []), status, now),
             "phase": (comp.get("android") or {}).get("phase") if comp.get("android")
             and now - comp["android"].get("t", 0) < 10 else None,
             "server_time": now}
@@ -219,6 +220,11 @@ def handle_api(path, body, now=None):
                     raise ValueError("unknown language")
                 comp.setdefault("prefs", {})["lang"] = lang
                 cs.write_companion(comp)
+                return 200, {"ok": True}
+            if path == "/api/alertlog":
+                rec = cs.add_alert_log(comp, body, now=now)
+                cs.write_companion(comp)
+                log(f"phone alert: {rec['kind']} (call {'placed' if rec['call'] else 'not placed'})")
                 return 200, {"ok": True}
             if path == "/api/confirm":
                 cs.add_confirmation(comp, body["episode_id"], body["froze"], now=now)
@@ -345,6 +351,28 @@ def make_handler(key, serve_page):
     return Handler
 
 
+def beacon_loop(key, port, every=2.0):
+    """Tell phones on the same Wi-Fi where this laptop is, so a paired phone finds it again
+    after the laptop's address changes. Only a short hash of the key is sent, never the key."""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    msg = cs.beacon_message(port, key)
+    while True:
+        targets = {"255.255.255.255"}
+        ip = cs.lan_ip()
+        try:
+            targets.add(str(ipaddress.ip_network(ip + "/24", strict=False).broadcast_address))
+        except ValueError:
+            pass
+        for t in targets:
+            try:
+                sock.sendto(msg, (t, cs.BEACON_PORT))
+            except OSError:
+                pass
+        time.sleep(every)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=cs.COMPANION_PORT, help="HTTPS port for the phone page")
@@ -367,6 +395,8 @@ def main():
         servers.append(ThreadingHTTPServer((a.host, a.http_port), make_handler(key, serve_page=False)))
     for s in servers[1:]:
         threading.Thread(target=s.serve_forever, daemon=True).start()
+    if a.http_port:
+        threading.Thread(target=beacon_loop, args=(key, a.http_port), daemon=True).start()
     log(f"phone page: https://{ip}:{a.port}  (scan the QR code on the dashboard's Access page)")
     if a.http_port:
         log(f"watch data: http://{ip}:{a.http_port}/api/health  (header X-StepCue-Key)")

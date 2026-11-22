@@ -16,6 +16,7 @@ Descriptive only; nothing here is a medical measurement.
 import json
 import os
 import time
+import urllib.parse
 from datetime import datetime
 
 COMPANION_FILE = os.environ.get("STEPCUE_COMPANION", "companion.json")
@@ -33,7 +34,8 @@ VERIFY_NEAR_SEC = 10
 def empty():
     return {"checkins": [], "confirmations": {}, "phone": None, "phone_series": [],
             "watch": {}, "hr_series": [], "prefs": {}, "android": None, "android_series": [],
-            "android_days": {}, "android_minutes": [], "android_steps_seen": None}
+            "android_days": {}, "android_minutes": [], "android_steps_seen": None,
+            "alerts_log": []}
 
 
 def read_companion(path=None):
@@ -91,21 +93,47 @@ def pairing_key(path=None, create=True):
 
 
 def lan_ip():
-    """This laptop's address on the local network (no packets are sent)."""
+    """This laptop's address on the local network (no packets are sent).
+
+    Tries the route to the internet first, then private ranges, so it also works on the
+    StepCue_AP hotspot (no internet) and on any home or school Wi-Fi."""
     import socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("10.255.255.255", 1))
-        return s.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        s.close()
+    for probe in ("8.8.8.8", "10.255.255.255", "192.168.255.255", "172.31.255.255"):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((probe, 1))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith(("127.", "0.")):
+                return ip
+        except OSError:
+            pass
+        finally:
+            s.close()
+    return "127.0.0.1"
+
+
+BEACON_PORT = 5011          # laptop -> phones on the same Wi-Fi: "a StepCue laptop is here"
+
+
+def laptop_name():
+    import socket
+    return socket.gethostname()[:40] or "StepCue laptop"
+
+
+def laptop_id(key=None):
+    """Short public id of this laptop's pairing key (the key itself is never broadcast)."""
+    import hashlib
+    return hashlib.sha256(("stepcue:" + (key or pairing_key())).encode()).hexdigest()[:16]
+
+
+def beacon_message(port=8080, key=None):
+    return json.dumps({"stepcue": 1, "id": laptop_id(key), "port": port, "name": laptop_name()}).encode()
 
 
 def android_url(host=None, port=8080, key=None):
     """Install page for the Android app (plain HTTP on the watch-data port; the key stays in the hash)."""
-    return f"http://{host or lan_ip()}:{port}/android#key={key or pairing_key()}"
+    name = urllib.parse.quote(laptop_name())
+    return f"http://{host or lan_ip()}:{port}/android?n={name}#key={key or pairing_key()}"
 
 
 def companion_url(host=None, port=None, key=None):
@@ -430,4 +458,96 @@ def android_summary(rec, now=None):
                                    "charging", "device", "hz", "phase") if rec.get(k) is not None}
     out["sensors"] = len(rec.get("sensors") or [])
     out["ago"] = ago(rec["t"], now)
+    return out
+
+
+# ------------------------------------------------------- phone calls --
+# The wearer's own Android phone calls the caretaker over its normal plan (no paid service).
+# The number lives only in companion.json (gitignored) and goes to the paired phone in /api/status.
+ALERT_FREEZE_SEC = int(os.environ.get("STEPCUE_ALERT_FREEZE_SEC", "30") or 30)
+ALERT_COOLDOWN_SEC = 300
+ALERT_HELP_WINDOW_SEC = 120
+MAX_ALERT_LOG = 50
+
+
+def clean_phone(number):
+    """A dialable number (digits with an optional leading +), or ValueError."""
+    s = str(number or "").strip()
+    plus = s.startswith("+")
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if any(ch not in "0123456789+-(). " for ch in s) or "+" in s[1:]:
+        raise ValueError("use only digits, spaces, dashes and a leading +")
+    if not 7 <= len(digits) <= 15:
+        raise ValueError("a phone number has 7 to 15 digits")
+    return ("+" if plus else "") + digits
+
+
+def alert_settings(companion):
+    a = (companion.get("prefs") or {}).get("alert") or {}
+    return a if a.get("phone") else None
+
+
+def set_alert_contact(companion, number, enabled=True):
+    companion.setdefault("prefs", {})
+    old = companion["prefs"].get("alert") or {}
+    companion["prefs"]["alert"] = {"phone": clean_phone(number), "enabled": bool(enabled),
+                                   "test_id": old.get("test_id", 0)}
+    return companion["prefs"]["alert"]
+
+
+def clear_alert_contact(companion):
+    (companion.get("prefs") or {}).pop("alert", None)
+
+
+def request_test_call(companion):
+    a = alert_settings(companion)
+    if not a:
+        raise ValueError("add the caregiver's number first")
+    a["test_id"] = int(a.get("test_id", 0)) + 1
+    return a["test_id"]
+
+
+def ongoing_freeze_sec(episodes, now=None):
+    """Seconds since the open episode started (episodes carry only a local HH:MM:SS), else None."""
+    now = time.time() if now is None else now
+    open_eps = [e for e in episodes or [] if isinstance(e, dict) and e.get("recovery_sec") is None]
+    if not open_eps:
+        return None
+    try:
+        h, m, s = (int(x) for x in str(open_eps[-1].get("timestamp", "")).split(":"))
+    except ValueError:
+        return None
+    lt = time.localtime(now)
+    since = (lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec) - (h * 3600 + m * 60 + s)
+    if since < 0:
+        since += 86400                      # started before midnight
+    return since
+
+
+def alert_payload(companion, episodes, status, now=None):
+    """What the paired phone needs to call the caretaker itself, or None when not set up."""
+    now = time.time() if now is None else now
+    a = alert_settings(companion)
+    if not a or not a.get("enabled", True):
+        return None
+    freeze_for = ongoing_freeze_sec(episodes, now) if status == "FREEZE" else None
+    open_ids = [e.get("id") for e in episodes or [] if isinstance(e, dict) and e.get("recovery_sec") is None]
+    help_ck = latest_checkin(companion, kinds=("help",))
+    return {"phone": a["phone"],
+            "freeze_sec": ALERT_FREEZE_SEC, "freeze_for": freeze_for,
+            "freeze_id": open_ids[-1] if open_ids and status == "FREEZE" else None,
+            "help_t": help_ck["t"] if help_ck and now - help_ck["t"] < ALERT_HELP_WINDOW_SEC else None,
+            "test_id": int(a.get("test_id", 0)), "cooldown": ALERT_COOLDOWN_SEC}
+
+
+def add_alert_log(companion, rec, now=None):
+    """The phone reports what it did: {kind, call, error}."""
+    if rec.get("kind") not in ("help", "freeze", "test"):
+        raise ValueError("unknown alert")
+    out = {"t": time.time() if now is None else now, "kind": rec["kind"],
+           "call": bool(rec.get("call")),
+           "error": str(rec.get("error") or "")[:120] or None}
+    log = companion.setdefault("alerts_log", [])
+    log.append(out)
+    del log[:-MAX_ALERT_LOG]
     return out
